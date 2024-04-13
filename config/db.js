@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-require('config-env');
 const config = require('config');
 const db = config.get('mongoURI');
 

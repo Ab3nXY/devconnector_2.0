@@ -1,4 +1,5 @@
 const express = require('express');
+require('config-env');
 const connectDB = require('./config/db');
 const path = require('path');
 
