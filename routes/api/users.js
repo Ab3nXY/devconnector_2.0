@@ -7,13 +7,25 @@ const jwt = require('jsonwebtoken');
 const config = require('config');
 const { check, validationResult } = require('express-validator');
 const normalize = require('normalize-url');
-
-
+const nodemailer = require('nodemailer'); // for sending verification emails
 
 const User = require('../../models/User');
 
+// Email configuration for nodemailer
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: process.env.EMAIL_PORT,
+  auth: {
+    user: process.env.EMAIL_ADDRESS,
+    pass: process.env.EMAIL_PASSWORD 
+  },
+  tls: {
+    rejectUnauthorized: false,
+  },
+});
+
 // @route    POST api/users
-// @desc     Register user
+// @desc     Register user and send verification email
 // @access   Public
 router.post(
   '/',
@@ -53,35 +65,58 @@ router.post(
         name,
         email,
         avatar,
-        password
+        password,
+        isVerified: false // Adding the isVerified field to the user document
       });
 
       const salt = await bcrypt.genSalt(10);
 
       user.password = await bcrypt.hash(password, salt);
 
+      // Generate a verification token
+      const verificationToken = jwt.sign(
+        { userId: user._id },
+        process.env.EMAIL_VERIFICATION_SECRET,
+        { expiresIn: '1 day' }
+      );
+
+      // Sending the verification email
+      await transporter.sendMail({
+        from: 'your_email@example.com',
+        to: email,
+        subject: 'Account Verification',
+        html: `<p>Please click <a href="${process.env.BASE_URL}/api/users/verify-email/${verificationToken}">here</a> to verify your email address.</p>`
+      });
+
       await user.save();
 
-      const payload = {
-        user: {
-          id: user.id
-        }
-      };
-
-      jwt.sign(
-        payload,
-        process.env.JWT_SECRET,
-        { expiresIn: '5 days' },
-        (err, token) => {
-          if (err) throw err;
-          res.json({ token });
-        }
-      );
+      res.json({
+        msg: 'Registration successful. Please check your email for verification.'
+      });
     } catch (err) {
       console.error(err.message);
       res.status(500).send('Server error');
     }
   }
 );
+
+// @route    GET api/users/verify-email/:token
+// @desc     Verify user's email address
+// @access   Public
+router.get('/verify-email/:token', async (req, res) => {
+  const token = req.params.token;
+
+  try {
+    const decoded = jwt.verify(token, process.env.EMAIL_VERIFICATION_SECRET);
+
+    // Mark user as verified
+    await User.findByIdAndUpdate(decoded.userId, { isVerified: true });
+
+    res.json({ msg: 'Email verified successfully. You can now login.' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(400).json({ msg: 'Invalid or expired token.' });
+  }
+});
 
 module.exports = router;
